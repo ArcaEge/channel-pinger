@@ -4,11 +4,12 @@ logging.basicConfig(level=logging.DEBUG)
 logging.getLogger("sqlalchemy.engine").setLevel(logging.INFO)
 
 import os
-from slack_bolt import App
+from slack_bolt import App, BoltContext
 from slack_bolt.adapter.flask import SlackRequestHandler
 from slack_bolt.oauth.oauth_settings import OAuthSettings
 from slack_sdk.oauth.installation_store.sqlalchemy import SQLAlchemyInstallationStore
 from slack_sdk.oauth.state_store.sqlalchemy import SQLAlchemyOAuthStateStore
+from slack_sdk import WebClient
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -17,7 +18,6 @@ import sqlalchemy
 from sqlalchemy.engine import Engine
 
 database_url = "sqlite:///database.db"
-# database_url = "postgresql://localhost/slackapp"  # pip install psycopg2
 
 logger = logging.getLogger(__name__)
 client_id, client_secret, signing_secret, host = (
@@ -63,23 +63,72 @@ app = App(
 def handle_command(say):
     say("@channel")
 
+
 @app.command("/channel-as-me")
-def handle_channel_command(ack, body, respond, say):
+def handle_channel_command(
+    ack, payload, body, respond, command, context: BoltContext, say
+):
     ack()
-    respond("[insert channel ping]")
-    say({
-	"blocks": [
-		{
-			"type": "section",
-			"block_id": "aPtBq",
-			"text": {
-				"type": "mrkdwn",
-				"text": "@channel test ping but this will be sent through the user later",
-				"verbatim": False
-			}
-		}
-	]
-})
+
+    channel_id = body.get("channel_id")
+
+    user_token = getattr(context, "user_token", None) or context.get("user_token")
+
+    if not user_token:
+        respond(
+            "I don't have permission to post as you. Please authorize the app by visiting: "
+            f"https://{os.environ['APP_HOST']}/slack/install"
+        )
+        return
+
+    client = WebClient(token=user_token)
+
+    text = f"@channel {command['text']}"
+
+    try:
+        client.chat_postMessage(
+            channel=channel_id,
+            text=text,
+            # blocks example — same effect when posting with user token
+            blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": text}}],
+        )
+    except Exception as e:
+        logger.exception("failed to post as user")
+        respond("Failed to send message as you: " + str(e))
+
+
+# Code duplication yay
+@app.command("/here-as-me")
+def handle_here_command(
+    ack, payload, body, respond, command, context: BoltContext, say
+):
+    ack()
+
+    channel_id = body.get("channel_id")
+
+    user_token = getattr(context, "user_token", None) or context.get("user_token")
+
+    if not user_token:
+        respond(
+            "I don't have permission to post as you. Please authorize the app by visiting: "
+            f"https://{os.environ['APP_HOST']}/slack/install"
+        )
+        return
+
+    client = WebClient(token=user_token)
+
+    text = f"@here {command['text']}"
+
+    try:
+        client.chat_postMessage(
+            channel=channel_id,
+            text=text,
+            # blocks example — same effect when posting with user token
+            blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": text}}],
+        )
+    except Exception as e:
+        logger.exception("failed to post as user")
+        respond("Failed to send message as you: " + str(e))
 
 
 from flask import Flask, request
@@ -92,6 +141,7 @@ handler = SlackRequestHandler(app)
 def slack_events():
     return handler.handle(request)
 
+
 @flask_app.route("/slack/install", methods=["GET"])
 def install():
     return handler.handle(request)
@@ -100,6 +150,7 @@ def install():
 @flask_app.route("/slack/oauth_redirect", methods=["GET"])
 def oauth_redirect():
     return handler.handle(request)
+
 
 if __name__ == "__main__":
     app.start(3000)
