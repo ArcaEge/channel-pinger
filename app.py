@@ -20,11 +20,12 @@ from sqlalchemy.engine import Engine
 database_url = "sqlite:///database.db"
 
 logger = logging.getLogger(__name__)
-client_id, client_secret, signing_secret, host = (
+client_id, client_secret, signing_secret, host, bot_token = (
     os.environ["SLACK_CLIENT_ID"],
     os.environ["SLACK_CLIENT_SECRET"],
     os.environ["SLACK_SIGNING_SECRET"],
     os.environ["APP_HOST"],
+    os.environ["SLACK_BOT_TOKEN"],
 )
 
 engine: Engine = sqlalchemy.create_engine(database_url)
@@ -49,6 +50,7 @@ app = App(
     logger=logger,
     signing_secret=signing_secret,
     installation_store=installation_store,
+    token=bot_token,
     oauth_settings=OAuthSettings(
         redirect_uri=f"https://{host}/slack/oauth_redirect",
         client_id=client_id,
@@ -61,13 +63,11 @@ app = App(
 
 @app.event("app_mention")
 def handle_command(say):
-    say("@channel")
+    say("@channel :loll:")
 
 
 @app.command("/channel-as-me")
-def handle_channel_command(
-    ack, payload, body, respond, command, context: BoltContext, say
-):
+def handle_channel_command(ack, body, respond, command, context: BoltContext, say):
     ack()
 
     channel_id = body.get("channel_id")
@@ -99,9 +99,7 @@ def handle_channel_command(
 
 # Code duplication yay
 @app.command("/here-as-me")
-def handle_here_command(
-    ack, payload, body, respond, command, context: BoltContext, say
-):
+def handle_here_command(ack, body, respond, command, context: BoltContext, say):
     ack()
 
     channel_id = body.get("channel_id")
